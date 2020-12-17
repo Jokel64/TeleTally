@@ -25,3 +25,4 @@ pnpm-debug.log*
 /esp8266/.pio/
 /esp8266/.vscodes/
 /esp8266/.vscodes/
+/esp8266/.vscode/
