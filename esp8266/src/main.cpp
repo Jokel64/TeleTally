@@ -8,15 +8,15 @@
 #define SSID "RHEA"
 #define PASSSWORD "igkultur"
 
-
 void setup() {
   pinMode(RED, OUTPUT);  
   pinMode(GREEN, OUTPUT);  
   pinMode(BLUE, OUTPUT);
 
   Serial.begin(115200);
- 
+  WiFi.hostname("EMT V-1HD Tally Light 1");
   WiFi.begin(SSID, PASSSWORD);
+  
   Serial.print("Connecting..");
   while (WiFi.status() != WL_CONNECTED) {
  
@@ -28,14 +28,16 @@ void setup() {
     delay(500);
   }
   digitalWrite(D2, LOW);
+  Serial.println("");
+  Serial.println("Connected.");
 }
 
 void loop() {
   if (WiFi.status() == WL_CONNECTED) { //Check WiFi connection status
  
     HTTPClient http;  //Declare an object of class HTTPClient
- 
-    http.begin("http://192.168.137.1:5000/api/v1/tally/s/1");  //Specify request destination
+
+    http.begin("http://"+ WiFi.gatewayIP().toString() + ":5000/api/v1/tally/s/1");  //Specify request destination
     int httpCode = http.GET();                                  //Send the request
     digitalWrite(GREEN, LOW);
     digitalWrite(RED, LOW);

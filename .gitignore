@@ -26,3 +26,4 @@ pnpm-debug.log*
 /esp8266/.vscodes/
 /esp8266/.vscodes/
 /esp8266/.vscode/
+/esp8266/.gitignore
