@@ -20,3 +20,6 @@ pnpm-debug.log*
 *.njsproj
 *.sln
 *.sw?
+/client/.editorconfig
+/client/dist/
+/client/node_modules/
