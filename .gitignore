@@ -23,3 +23,5 @@ pnpm-debug.log*
 /client/dist/
 /client/node_modules/
 /esp8266/.pio/
+/esp8266/.vscodes/
+/esp8266/.vscodes/
