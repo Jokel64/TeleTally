@@ -7,6 +7,7 @@ import random
 
 from flask import Flask, jsonify
 from flask_cors import CORS
+from flask_socketio import SocketIO
 
 from rtmidi._rtmidi import NoDevicesError
 from rtmidi.midiutil import open_midiinput
@@ -57,6 +58,7 @@ class MidiInputHandler(object):
                 selected_A = message[1]
             elif update_select is Layer.B:
                 selected_B = message[1]
+        socketio.emit('update', all_tally_states())
 
 
 # Prompts user for MIDI input port, unless a valid port number or name
@@ -84,8 +86,10 @@ DEBUG = True
 
 # instantiate the app
 app = Flask(__name__)
+app.config['TESTING'] = True
+app.config['SECRET_KEY'] = "THISWILLBEOURSECRET"
 app.config.from_object(__name__)
-
+socketio = SocketIO(app, cors_allowed_origins="*")
 # enable CORS
 CORS(app, resources={r'/*': {'origins': '*'}})
 
@@ -121,8 +125,14 @@ def set_tally():
     selected_A = random.choice((Input.I1, Input.I2, Input.I3, Input.I4))
     selected_B = random.choice((Input.I1, Input.I2, Input.I3, Input.I4))
     Layer_State = random.choice((State.A, State.B, State.AB))
+    socketio.emit('update', all_tally_states())
     return f'A: {selected_A}, B: {selected_B}, Layer: {Layer_State}'
 
 
+@socketio.on('kanal')
+def handle_message(data):
+    print('received message: ' + data)
+
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    socketio.run(app, host='0.0.0.0', port=5000)

@@ -1,11 +1,12 @@
 import Vue from 'vue';
 import Vuex from 'vuex';
-import axios from 'axios';
 
 Vue.use(Vuex);
 
 export const store = new Vuex.Store({
   state: {
+    isConnected: false,
+    socketMessage: '',
     tally: {
       tally0: 'none',
       tally1: 'none',
@@ -25,15 +26,23 @@ export const store = new Vuex.Store({
       console.log(`Selected Tally: ${value}`);
       state.selected_tally = value;
     },
-  },
-  actions: {
-    getStateFromServer({ commit }) {
-      setInterval(function () {
-        axios.get('http://192.168.137.1:5000/api/v1/tally/all')
-          .then((response) => {
-            commit('SET_TALLIES', response.data);
-          });
-      }, 200);
+    SOCKET_CONNECT(state) {
+      state.isConnected = true;
+    },
+
+    SOCKET_DISCONNECT(state) {
+      state.isConnected = false;
+    },
+    SOCKET_MESSAGECHANNEL(state, message) {
+      console.log(message);
+      state.socketMessage = message;
+    },
+    SOCKET_update(state, value) {
+      console.log(value);
+      state.tally.tally0 = value[0];
+      state.tally.tally1 = value[1];
+      state.tally.tally2 = value[2];
+      state.tally.tally3 = value[3];
     },
   },
   getters: {
