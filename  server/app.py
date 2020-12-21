@@ -12,6 +12,44 @@ from flask_socketio import SocketIO
 from rtmidi._rtmidi import NoDevicesError
 from rtmidi.midiutil import open_midiinput
 
+import paho.mqtt.client as mqtt
+
+broker = '192.168.137.225'
+port = 1883
+topic = "/update"
+client_id = 'midi_server'
+client = None
+
+def connect_mqtt():
+    def on_connect(client, userdata, flags, rc):
+        if rc == 0:
+            print("Connected to MQTT Broker!")
+        else:
+            print("Failed to connect, return code %d\n", rc)
+    # Set Connecting Client ID
+    client = mqtt.Client(client_id)
+    client.on_connect = on_connect
+    client.connect(broker, port)
+    return client
+
+
+def publish(msg):
+    result = client.publish(topic, msg)
+
+    # result: [0, 1]
+    status = result[0]
+    if status == 0:
+        print(f"Send `{msg}` to topic `{topic}`")
+    else:
+        print(f"Failed to send message to topic {topic}")
+        client.reconnect()
+        publish(msg)
+
+
+client = connect_mqtt()
+
+
+
 
 class State:
     A, B, AB = range(3)
@@ -43,6 +81,10 @@ class MidiInputHandler(object):
         global Layer_State, update_select, selected_A, selected_B
         message, deltatime = event
         self._wallclock += deltatime
+        selected_B_save = selected_B
+        selected_A_save = selected_A
+        Layer_State_save = Layer_State
+
         if message[0] is 176 and message[1] is 17:
             if message[2] is 0:
                 Layer_State = State.A
@@ -58,7 +100,9 @@ class MidiInputHandler(object):
                 selected_A = message[1]
             elif update_select is Layer.B:
                 selected_B = message[1]
-        socketio.emit('update', all_tally_states())
+
+        if selected_A_save != selected_A or selected_B_save != selected_B or Layer_State_save != Layer_State:
+            socketio.emit('update', all_tally_states())
 
 
 # Prompts user for MIDI input port, unless a valid port number or name
@@ -80,6 +124,7 @@ if not demo_mode:
     midiin.set_callback(MidiInputHandler(port_name))
 
     print("Entering main loop. Press Control-C to exit.")
+
 
 # configuration
 DEBUG = True
@@ -125,7 +170,9 @@ def set_tally():
     selected_A = random.choice((Input.I1, Input.I2, Input.I3, Input.I4))
     selected_B = random.choice((Input.I1, Input.I2, Input.I3, Input.I4))
     Layer_State = random.choice((State.A, State.B, State.AB))
-    socketio.emit('update', all_tally_states())
+    states = all_tally_states()
+    socketio.emit('update', states)
+    publish(states)
     return f'A: {selected_A}, B: {selected_B}, Layer: {Layer_State}'
 
 
@@ -135,4 +182,5 @@ def handle_message(data):
 
 
 if __name__ == '__main__':
+    client.loop_start()
     socketio.run(app, host='0.0.0.0', port=5000)
