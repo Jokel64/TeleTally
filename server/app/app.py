@@ -18,7 +18,7 @@ from rtmidi._rtmidi import NoDevicesError
 from rtmidi.midiutil import open_midiinput
 
 ######################################################  GLOBAL  #######################################################
-broker = '127.0.0.1'
+broker = '192.168.0.101'
 mqtt_port = 1883
 topic = "/update"
 client_id = 'midi_server'
@@ -144,7 +144,7 @@ port = None
 
 demo_mode = False
 try:
-    midiin, port_name = open_midiinput(port)
+    midiin, port_name = open_midiinput(1)
 except (EOFError, KeyboardInterrupt):
     sys.exit()
 except NoDevicesError:
