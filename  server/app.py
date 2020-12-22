@@ -39,7 +39,28 @@ tally_MQTT_clients = {
         'alive_packages': 0,
         'alive_timeouts': 0,
         'last_alive': 0.0,
-        'connected': True
+        'connected': False
+    },
+    2: {
+        'first_connect': 0.0,
+        'alive_packages': 0,
+        'alive_timeouts': 0,
+        'last_alive': 0.0,
+        'connected': False
+    },
+    3: {
+        'first_connect': 0.0,
+        'alive_packages': 0,
+        'alive_timeouts': 0,
+        'last_alive': 0.0,
+        'connected': False
+    },
+    4: {
+        'first_connect': 0.0,
+        'alive_packages': 0,
+        'alive_timeouts': 0,
+        'last_alive': 0.0,
+        'connected': False
     },
 }
 
@@ -156,6 +177,7 @@ def on_message(client_instance, userdata, msg):
     if msgtopic == "/feedback/alive":
         tally_MQTT_clients[no]['alive_packages'] += 1
         tally_MQTT_clients[no]['last_alive'] = time.time()
+        tally_MQTT_clients[no]['connected'] = True
         log_mqtt.info(f"Tally Light {no} alive.")
 
     elif msgtopic == "/feedback/connected":
@@ -205,6 +227,7 @@ client = connect_mqtt()
 def broadcast():
     while True:
         publish(all_tally_states(), broadcast=True)
+        esp_state_emit()
         time.sleep(3)
 
 
@@ -226,8 +249,7 @@ def alive_checker():
 client.loop_start()
 broadcast_service = threading.Thread(target=broadcast)
 alive_service = threading.Thread(target=alive_checker)
-broadcast_service.start()
-alive_service.start()
+
 
 ########################################################  API  #########################################################
 app = Flask(__name__)
@@ -268,14 +290,31 @@ def set_tally():
     return f'A: {selected_A}, B: {selected_B}, Layer: {Layer_State}'
 
 
-@socketIO.on('settings')
+@socketIO.on('apirequest')
 def handle_message(data):
-    log_api.info('received message: ' + data)
+    if data == "espstate":
+        esp_state_emit()
+    elif data == "update":
+        socketIO.emit('update', all_tally_states())
 
 
 def esp_state_emit():
-    socketIO.emit('espstate', json.dumps(tally_MQTT_clients))
+    rl = []
+    for idx in tally_MQTT_clients:
+        elm = tally_MQTT_clients[idx]
+        js = {
+            'Name': f"Tally Light {idx}",
+            'Connected': elm['connected'],
+            'alive_packages': elm['alive_packages'],
+            'alive_timeouts': elm['alive_timeouts'],
+            'last_alive': f"{round(time.time() - elm['last_alive'])} seconds ago." if elm['last_alive'] != 0.0 else "-",
+        }
+        rl.append(json.dumps(js))
+    socketIO.emit('espstate', rl)
 
+
+broadcast_service.start()
+alive_service.start()
 
 if __name__ == '__main__':
     socketIO.run(app, host='0.0.0.0', port=5000)

@@ -21,6 +21,7 @@ export default {
   created() {
     this.tally_id = this.$route.params.id;
     this.$store.commit('SET_SELECTED_TALLY', Number(this.$route.params.id) - 1);
+    this.$socket.emit('apirequest', 'update');
   },
   updated() {
     this.tally_id = this.$route.params.id;

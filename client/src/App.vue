@@ -3,8 +3,9 @@
     <div v-bind:style="bgcolor" class="fullscreen">
       <div id="nav">
         <router-link to="/">Home</router-link>
-
         |
+                <router-link to="/Overview">Overview</router-link>
+
         <router-link v-for="tally in tallies" :key="tally.val"
                      :to="{path: '/tally/' + tally.label, params: {tally_id:tally.val } }"> |
           Tally {{

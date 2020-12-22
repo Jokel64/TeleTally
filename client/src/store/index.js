@@ -14,6 +14,7 @@ export const store = new Vuex.Store({
       tally3: 'none',
     },
     selected_tally: '',
+    esp_dict: null,
   },
   mutations: {
     SET_TALLIES(state, value) {
@@ -43,6 +44,14 @@ export const store = new Vuex.Store({
       state.tally.tally1 = value[1];
       state.tally.tally2 = value[2];
       state.tally.tally3 = value[3];
+    },
+    SOCKET_espstate(state, value) {
+      const list = [];
+      // eslint-disable-next-line no-plusplus
+      for (let i = 0; i < value.length; i++) {
+        list.push(JSON.parse(value[i]));
+      }
+      state.esp_dict = list;
     },
   },
   getters: {
