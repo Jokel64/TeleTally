@@ -1,56 +1,56 @@
-from __future__ import print_function
+#!/usr/bin/env python
+__author__ = "Jakob Englert"
+__copyright__ = "Copyright 2020, EMT Event-Media-Tec GmbH"
 
+import json
 import logging
-import sys
-import time
+import os
 import random
+import sys
+import threading
+import time
 
+import paho.mqtt.client as mqtt
 from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_socketio import SocketIO
-
 from rtmidi._rtmidi import NoDevicesError
 from rtmidi.midiutil import open_midiinput
 
-import paho.mqtt.client as mqtt
-
+######################################################  GLOBAL  #######################################################
 broker = '192.168.137.225'
-port = 1883
+mqtt_port = 1883
 topic = "/update"
 client_id = 'midi_server'
 client = None
 
-def connect_mqtt():
-    def on_connect(client, userdata, flags, rc):
-        if rc == 0:
-            print("Connected to MQTT Broker!")
-        else:
-            print("Failed to connect, return code %d\n", rc)
-    # Set Connecting Client ID
-    client = mqtt.Client(client_id)
-    client.on_connect = on_connect
-    client.connect(broker, port)
-    return client
+message_counter = 0
+
+settings = {
+    'esp_update_period': 5
+}
+
+if os.path.isfile('settings.json'):
+    settings.update(json.load(open("settings.json")))
+
+tally_MQTT_clients = {
+    1: {
+        'first_connect': 0.0,
+        'alive_packages': 0,
+        'alive_timeouts': 0,
+        'last_alive': 0.0,
+        'connected': True
+    },
+}
+
+# Loggers
+log_mqtt = logging.getLogger("MQTT")
+log_api = logging.getLogger("API")
+log_midi = logging.getLogger('midiin_callback')
+logging.basicConfig(level=logging.DEBUG)
 
 
-def publish(msg):
-    result = client.publish(topic, msg)
-
-    # result: [0, 1]
-    status = result[0]
-    if status == 0:
-        print(f"Send `{msg}` to topic `{topic}`")
-    else:
-        print(f"Failed to send message to topic {topic}")
-        client.reconnect()
-        publish(msg)
-
-
-client = connect_mqtt()
-
-
-
-
+#######################################################  MIDI  ########################################################
 class State:
     A, B, AB = range(3)
 
@@ -68,8 +68,20 @@ selected_A = Input.I1
 selected_B = Input.I2
 update_select = Layer.A
 
-log = logging.getLogger('midiin_callback')
-logging.basicConfig(level=logging.DEBUG)
+
+def get_state(I):
+    if (I is selected_A and Layer_State is 0) or (I is selected_B and Layer_State is 1) \
+            or ((I is selected_A or I is selected_B) and Layer_State is 2):
+        return 'live'
+    elif I is selected_A or I is selected_B:
+        return 'ready'
+    else:
+        return 'none'
+
+
+def all_tally_states():
+    state = get_state(0)[0] + get_state(1)[0] + get_state(2)[0] + get_state(3)[0]
+    return state
 
 
 class MidiInputHandler(object):
@@ -102,12 +114,11 @@ class MidiInputHandler(object):
                 selected_B = message[1]
 
         if selected_A_save != selected_A or selected_B_save != selected_B or Layer_State_save != Layer_State:
-            socketio.emit('update', all_tally_states())
+            states = all_tally_states()
+            socketIO.emit('update', states)
+            publish(states)
 
 
-# Prompts user for MIDI input port, unless a valid port number or name
-# is given as the first argument on the command line.
-# API backend defaults to ALSA on Linux.
 port = None
 
 demo_mode = False
@@ -118,35 +129,113 @@ except (EOFError, KeyboardInterrupt):
 except NoDevicesError:
     demo_mode = True
 
-
 if not demo_mode:
-    print("Attaching MIDI input callback handler.")
+    log_midi.info("Attaching MIDI input callback handler.")
     midiin.set_callback(MidiInputHandler(port_name))
 
-    print("Entering main loop. Press Control-C to exit.")
 
-
-# configuration
-DEBUG = True
-
-# instantiate the app
-app = Flask(__name__)
-app.config['TESTING'] = True
-app.config['SECRET_KEY'] = "THISWILLBEOURSECRET"
-app.config.from_object(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
-# enable CORS
-CORS(app, resources={r'/*': {'origins': '*'}})
-
-
-def get_state(I):
-    if (I is selected_A and Layer_State is 0) or (I is selected_B and Layer_State is 1) \
-            or ((I is selected_A or I is selected_B) and Layer_State is 2):
-        return 'live'
-    elif I is selected_A or I is selected_B:
-        return 'ready'
+#######################################################  MQTT  ########################################################
+def on_connect(client_instance, userdata, flags, rc):
+    global client
+    if rc == 0:
+        log_mqtt.info("Connected to MQTT Broker!")
+        client.subscribe("/feedback/alive")
+        client.subscribe("/feedback/connected")
     else:
-        return 'none'
+        log_mqtt.error("Failed to connect, return code %d\n", rc)
+
+
+def on_message(client_instance, userdata, msg):
+    no = int(msg.payload)
+    msgtopic = str(msg.topic).replace(' ', '')
+
+    if tally_MQTT_clients[no]['first_connect'] == 0.0:
+        tally_MQTT_clients[no]['first_connect'] = time.time()
+        tally_MQTT_clients[no]['connected'] = True
+
+    if msgtopic == "/feedback/alive":
+        tally_MQTT_clients[no]['alive_packages'] += 1
+        tally_MQTT_clients[no]['last_alive'] = time.time()
+        log_mqtt.info(f"Tally Light {no} alive.")
+
+    elif msgtopic == "/feedback/connected":
+        log_mqtt.info(f"Tally Light {no} connected.")
+    else:
+        log_mqtt.error(f"Topic {msgtopic} is unknown and will be ignored.", )
+
+
+def connect_mqtt():
+    global client
+    # Set Connecting Client ID
+    client = mqtt.Client(client_id)
+    client.on_connect = on_connect
+    client.on_message = on_message
+    client.connect(broker, mqtt_port)
+    return client
+
+
+def publish(msg, broadcast=False):
+    global message_counter
+    top = "/broadcast" if broadcast else topic
+    result = client.publish(top, msg)
+
+    # result: [0, 1]
+    status = result[0]
+    if status == 0:
+        if not broadcast:
+            log_mqtt.info(f"Sent `{msg}` to topic `{top}` [{message_counter}]")
+            message_counter += 1
+    else:
+        log_mqtt.error(f"Failed to send message to topic {top}")
+        client.disconnect()
+        while not client.is_connected():
+            # noinspection PyBroadException
+            try:
+                log_mqtt.info("Reconnecting...")
+                client.reconnect()
+            except Exception as e:
+                log_mqtt.error("Cant reach MQTT-Server! Trying again in 5 sec.")
+            time.sleep(5)
+        publish(msg)
+
+
+client = connect_mqtt()
+
+
+def broadcast():
+    while True:
+        publish(all_tally_states(), broadcast=True)
+        time.sleep(3)
+
+
+def alive_checker():
+    while True:
+        for idx in tally_MQTT_clients:
+            elm = tally_MQTT_clients[idx]
+            if elm['first_connect'] != 0 and elm['alive_packages'] != 0:
+                if time.time() - elm['last_alive'] - 0.5 * settings['esp_update_period'] > settings[
+                    'esp_update_period']:
+                    log_mqtt.info("timeout")
+                    elm['connected'] = False
+                    elm['alive_timeouts'] += 1
+                    elm['last_alive'] = time.time()
+                    esp_state_emit()
+        time.sleep(1)
+
+
+client.loop_start()
+broadcast_service = threading.Thread(target=broadcast)
+alive_service = threading.Thread(target=alive_checker)
+broadcast_service.start()
+alive_service.start()
+
+########################################################  API  #########################################################
+app = Flask(__name__)
+app.config['TESTING'] = False
+app.config['SECRET_KEY'] = "m238fn3o10enmd4i23iod129jdk39r5j"
+app.config.from_object(__name__)
+socketIO = SocketIO(app, cors_allowed_origins="*")
+CORS(app, resources={r'/*': {'origins': '*'}})
 
 
 # sanity check route
@@ -154,15 +243,18 @@ def get_state(I):
 def ping_pong():
     return jsonify('pong!')
 
+
 @app.route('/api/v1/tally/s/<tally_id>', methods=['GET'])
 def single_tally_state(tally_id=-1):
     state = get_state(int(tally_id))
     return state
 
+
 @app.route('/api/v1/tally/all')
-def all_tally_states():
-    state = get_state(0)[0] + get_state(1)[0] + get_state(2)[0] + get_state(3)[0]
+def all_tally_states_api():
+    state = all_tally_states()
     return state
+
 
 @app.route('/dev/set/')
 def set_tally():
@@ -171,16 +263,19 @@ def set_tally():
     selected_B = random.choice((Input.I1, Input.I2, Input.I3, Input.I4))
     Layer_State = random.choice((State.A, State.B, State.AB))
     states = all_tally_states()
-    socketio.emit('update', states)
+    socketIO.emit('update', states)
     publish(states)
     return f'A: {selected_A}, B: {selected_B}, Layer: {Layer_State}'
 
 
-@socketio.on('kanal')
+@socketIO.on('settings')
 def handle_message(data):
-    print('received message: ' + data)
+    log_api.info('received message: ' + data)
+
+
+def esp_state_emit():
+    socketIO.emit('espstate', json.dumps(tally_MQTT_clients))
 
 
 if __name__ == '__main__':
-    client.loop_start()
-    socketio.run(app, host='0.0.0.0', port=5000)
+    socketIO.run(app, host='0.0.0.0', port=5000)
