@@ -18,7 +18,7 @@ from rtmidi._rtmidi import NoDevicesError
 from rtmidi.midiutil import open_midiinput
 
 ######################################################  GLOBAL  #######################################################
-broker = '192.168.0.101'
+broker = '127.0.0.1'
 mqtt_port = 1883
 topic = "/update"
 client_id = 'midi_server'
